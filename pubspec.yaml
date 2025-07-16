@@ -11,6 +11,15 @@ dependencies:
     sdk: flutter
   flutter_reactive_ble: ^5.4.0
   permission_handler: ^11.0.1
+  flutter_local_notifications: ^17.1.2
+  timezone: ^0.9.2
+  mqtt_client: ^10.10.0
+  firebase_core: ^2.30.0
+  firebase_messaging: ^14.7.3
+  http: ^0.13.6
+  flutter_dotenv: ^5.1.0
+
+
 
 dev_dependencies:
   flutter_test:

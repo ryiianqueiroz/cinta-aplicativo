@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "674750668412",
+    "project_id": "cinta-2eda2",
+    "storage_bucket": "cinta-2eda2.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:674750668412:android:6a512e2b5a8c5a897b73f9",
+        "android_client_info": {
+          "package_name": "com.example.flutter_application_1"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyA-CDW4CBnSzPijI9w9vb1_b4rGvcbeyv8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
