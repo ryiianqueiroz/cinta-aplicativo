@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_reactive_ble/flutter_reactive_ble.dart';
@@ -10,6 +11,7 @@ import 'package:mqtt_client/mqtt_server_client.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 
 // Serviço MQTT
 class MqttService {
@@ -68,7 +70,38 @@ class MqttService {
 
 final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
     FlutterLocalNotificationsPlugin();
-final flutterReactiveBle = FlutterReactiveBle();
+
+Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
+  await Firebase.initializeApp();
+  print("📨 Mensagem em segundo plano: ${message.messageId}");
+}
+
+void setupFirebaseMessaging() async {
+  FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
+
+  // Solicitar permissão (iOS)
+  FirebaseMessaging messaging = FirebaseMessaging.instance;
+  await messaging.requestPermission();
+
+  // Obter token do dispositivo
+  final token = await messaging.getToken();
+  print("🔑 Token FCM: $token");
+
+  // Quando o app está em primeiro plano
+  FirebaseMessaging.onMessage.listen((RemoteMessage message) {
+    final notification = message.notification;
+    if (notification != null) {
+      flutterLocalNotificationsPlugin.show(
+        0,
+        notification.title,
+        notification.body,
+        NotificationDetails(
+          android: AndroidNotificationDetails('channel_id', 'Alerta'),
+        ),
+      );
+    }
+  });
+}
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -85,7 +118,8 @@ void main() async {
       runApp(MyApp(navigateTo: '/alerta'));
     },
   );
-
+  
+  await Firebase.initializeApp();
   runApp(MyApp());
 }
 
