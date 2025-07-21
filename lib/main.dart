@@ -72,7 +72,7 @@ final flutterReactiveBle = FlutterReactiveBle();
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await dotenv.load(); 
+  await dotenv.load(fileName: "chave.env");
   tz.initializeTimeZones();
   tz.setLocalLocation(tz.getLocation('America/Sao_Paulo'));
 
@@ -120,7 +120,16 @@ class SplashScreen extends StatelessWidget {
     });
 
     return Scaffold(
-      body: Center(child: Text('Bem-vindo ao ESP32 App')),
+      body: Center(
+        child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Text('Bem-vindo ao ESP32 App'),
+          SizedBox(height: 20),
+          Image.asset('assets/logo.png'),
+        ],
+      ),
+      ),
     );
   }
 }
@@ -132,7 +141,7 @@ class LoginScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFFDD9A0),
+      backgroundColor: const Color(0xFFFFFFFF),
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(28),
@@ -166,7 +175,7 @@ class LoginScreen extends StatelessWidget {
                 controller: email,
                 decoration: InputDecoration(
                   hintText: "Enter email or user name",
-                  fillColor: Colors.orange.shade100,
+                  fillColor: Colors.grey[100],
                   filled: true,
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
@@ -184,7 +193,7 @@ class LoginScreen extends StatelessWidget {
                 decoration: InputDecoration(
                   hintText: "Password",
                   suffixIcon: const Icon(Icons.visibility_off),
-                  fillColor: Colors.orange.shade100,
+                  fillColor: Colors.grey[100],
                   filled: true,
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
@@ -255,14 +264,24 @@ class RegisterScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFFDD9A0),
+      backgroundColor: const Color(0xFFFFFFFF),
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(28),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text("Your Logo", style: TextStyle(fontSize: 16)),
+              Padding(
+                padding: const EdgeInsets.all(5), // Adjust the margin value as needed
+                child: SizedBox(
+                  width: 70.0, // Adjust the width as needed
+                  height: 50.0, // Adjust the height as needed
+                  child: Image.asset(
+                    "assets/logo.png",
+                    fit: BoxFit.fill, // Or other BoxFit options like BoxFit.cover, BoxFit.fitWidth, etc.
+                  ),
+                ),
+              ),
               const SizedBox(height: 30),
               const Text("Sign in up", style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold)),
               const SizedBox(height: 6),
@@ -302,7 +321,7 @@ class RegisterScreen extends StatelessWidget {
       obscureText: isPassword,
       decoration: InputDecoration(
         hintText: hint,
-        fillColor: Colors.orange.shade100,
+        fillColor: Colors.grey[100],
         filled: true,
         suffixIcon: isPassword ? const Icon(Icons.visibility_off) : null,
         border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
@@ -367,177 +386,225 @@ class PairingScreen extends StatefulWidget {
 }
 
 class _PairingScreenState extends State<PairingScreen> {
-  List<DiscoveredDevice> devices = [];
+  final flutterReactiveBle = FlutterReactiveBle();
   late Stream<DiscoveredDevice> scanStream;
-  bool scanning = false;
+  List<DiscoveredDevice> dispositivos = [];
 
   @override
   void initState() {
     super.initState();
-    checkPermissions();
+    iniciarScan();
   }
 
-  Future<void> checkPermissions() async {
-    await Permission.location.request();
-    await Permission.bluetoothScan.request();
-    await Permission.bluetoothConnect.request();
-  }
-
-  Future<void> conectarEEnviar(
-    String deviceId,
-    String ssid,
-    String senha,
-  ) async {
-    final characteristic = QualifiedCharacteristic(
-      deviceId: deviceId,
-      serviceId: Uuid.parse("12345678-1234-1234-1234-1234567890ab"), // UUID do serviço do ESP32
-      characteristicId: Uuid.parse("abcd1234-1111-1111-1111-abcdef123456"), // UUID da característica WRITE
-    );
-
-    // Conectando ao dispositivo
-    await flutterReactiveBle.connectToDevice(id: deviceId).first;
-
-    // Escrevendo dados na característica
-    await flutterReactiveBle.writeCharacteristicWithResponse(
-      characteristic,
-      value: utf8.encode("$ssid|$senha"),
-    );
-  }
-
-
-
-  void startScan() {
-    setState(() {
-      devices.clear();
-      scanning = true;
-    });
-
-    scanStream = flutterReactiveBle.scanForDevices(
-      withServices: [],
-      scanMode: ScanMode.lowLatency,
-    );
-
+  void iniciarScan() {
+    scanStream = flutterReactiveBle.scanForDevices(withServices: []);
     scanStream.listen((device) {
-      print("📡 Dispositivo encontrado: ${device.name} - ${device.id}");
-      if (!devices.any((d) => d.id == device.id)) {
+      if (!dispositivos.any((d) => d.id == device.id)) {
         setState(() {
-          devices.add(device);
+          dispositivos.add(device);
         });
       }
-    }, onDone: () {
-      setState(() => scanning = false);
-    }, onError: (e) {
-      print("Erro ao escanear: $e");
-      setState(() => scanning = false);
     });
   }
-
-  void exibirDialogoWiFi(String deviceId) {
-    final ssidController = TextEditingController();
-    final senhaController = TextEditingController();
-
-    showDialog(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: Text("Enviar Wi-Fi para ESP32"),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(controller: ssidController, decoration: InputDecoration(labelText: "SSID")),
-            TextField(controller: senhaController, decoration: InputDecoration(labelText: "Senha"), obscureText: true),
-          ],
-        ),
-        actions: [
-          TextButton(
-            child: Text("Enviar"),
-            onPressed: () async {
-              Navigator.pop(context);
-              await conectarEEnviar(deviceId, ssidController.text, senhaController.text);
-              ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Credenciais enviadas!")));
-            },
-          )
-        ],
-      ),
-    );
-  }
-
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text('Emparelhamento')),
-      body: Column(
-        children: [
-          ElevatedButton(
-            onPressed: scanning ? null : startScan,
-            child: Text(scanning ? 'Escaneando...' : 'Buscar Dispositivos'),
-          ),
-          Expanded(
-            child: devices.isEmpty
-              ? Center(
-                  child: Text(
-                    scanning
-                      ? '🔍 Procurando dispositivos BLE...'
-                      : 'Nenhum dispositivo encontrado. Ligue sua ESP32 ou tente novamente.',
-                    textAlign: TextAlign.center,
-                  ),
-                )
-              : ListView.builder(
-                  itemCount: devices.length,
-                  itemBuilder: (context, index) {
-                    final device = devices[index];
-                    return ListTile(
-                      title: Text(device.name.isNotEmpty ? device.name : 'Dispositivo sem nome'),
+      backgroundColor: const Color(0xFFF7F2FF),
+      appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        foregroundColor: Colors.black87,
+        title: const Text("Emparelhar Cinta"),
+        centerTitle: true,
+      ),
+      body: Padding(
+        padding: const EdgeInsets.all(24.0),
+        child: Column(
+          children: [
+            const Icon(Icons.bluetooth_searching, size: 80, color: Color(0xFF7E22CE)),
+            const SizedBox(height: 16),
+            const Text(
+              "Procurando dispositivos...",
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+                color: Color(0xFF4B0082),
+              ),
+            ),
+            const SizedBox(height: 24),
+            Expanded(
+              child: ListView.builder(
+                itemCount: dispositivos.length,
+                itemBuilder: (context, index) {
+                  final device = dispositivos[index];
+                  return Card(
+                    child: ListTile(
+                      title: Text(device.name.isNotEmpty ? device.name : "Dispositivo sem nome"),
                       subtitle: Text(device.id),
                       onTap: () {
-                        // Mostra o diálogo para enviar SSID/Senha
-                        final ssidController = TextEditingController();
-                        final senhaController = TextEditingController();
-
-                        showDialog(
-                          context: context,
-                          builder: (context) {
-                            return AlertDialog(
-                              title: Text("Conectar ao Wi-Fi"),
-                              content: Column(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  TextField(
-                                    controller: ssidController,
-                                    decoration: InputDecoration(labelText: "SSID do Wi-Fi"),
-                                  ),
-                                  TextField(
-                                    controller: senhaController,
-                                    decoration: InputDecoration(labelText: "Senha do Wi-Fi"),
-                                    obscureText: true,
-                                  ),
-                                ],
-                              ),
-                              actions: [
-                                TextButton(
-                                  child: Text("Enviar"),
-                                  onPressed: () async {
-                                    Navigator.of(context).pop();
-                                    await conectarEEnviar(
-                                      device.id,
-                                      ssidController.text,
-                                      senhaController.text,
-                                    );
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      SnackBar(content: Text("Credenciais enviadas!")),
-                                    );
-                                  },
-                                )
-                              ],
-                            );
-                          },
+                        // 👉 Navegar para a WifiCredentialsScreen passando o deviceId
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => WifiCredentialsScreen(deviceId: device.id),
+                          ),
                         );
                       },
-                    );
-                  },
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class WifiCredentialsScreen extends StatefulWidget {
+  final String deviceId;
+
+  WifiCredentialsScreen({required this.deviceId});
+
+  @override
+  _WifiCredentialsScreenState createState() => _WifiCredentialsScreenState();
+}
+
+class _WifiCredentialsScreenState extends State<WifiCredentialsScreen> {
+  final TextEditingController ssidController = TextEditingController();
+  final TextEditingController senhaController = TextEditingController();
+  final flutterReactiveBle = FlutterReactiveBle();
+
+  bool enviando = false;
+
+  Future<void> conectarEEnviar(String ssid, String senha) async {
+    final serviceUuid = Uuid.parse("12345678-1234-1234-1234-1234567890ab");
+    final ssidCharUuid = Uuid.parse("abcd1234-1111-1111-1111-abcdef123456");
+    final passCharUuid = Uuid.parse("abcd1234-2222-2222-2222-abcdef123456");
+
+    setState(() => enviando = true);
+
+    try {
+      final connection = flutterReactiveBle.connectToDevice(id: widget.deviceId);
+      await connection.first;
+
+      final ssidChar = QualifiedCharacteristic(
+        deviceId: widget.deviceId,
+        serviceId: serviceUuid,
+        characteristicId: ssidCharUuid,
+      );
+      final passChar = QualifiedCharacteristic(
+        deviceId: widget.deviceId,
+        serviceId: serviceUuid,
+        characteristicId: passCharUuid,
+      );
+
+      await flutterReactiveBle.writeCharacteristicWithResponse(
+        ssidChar,
+        value: utf8.encode(ssid),
+      );
+      await flutterReactiveBle.writeCharacteristicWithResponse(
+        passChar,
+        value: utf8.encode(senha),
+      );
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("✅ Dados enviados com sucesso!")),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("❌ Erro ao enviar dados: $e")),
+      );
+    } finally {
+      setState(() => enviando = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFFF7F2FF),
+      appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        foregroundColor: Colors.black87,
+        title: const Text("Pareando Cinta"),
+        centerTitle: true,
+      ),
+      body: Padding(
+        padding: const EdgeInsets.all(24.0),
+        child: Column(
+          children: [
+            const Icon(Icons.wifi, size: 80, color: Color(0xFF7E22CE)),
+            const SizedBox(height: 16),
+            const Text(
+              "Conectar ao Wi-Fi",
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+                color: Color(0xFF4B0082),
+              ),
+            ),
+            const SizedBox(height: 32),
+            TextField(
+              controller: ssidController,
+              decoration: InputDecoration(
+                filled: true,
+                fillColor: Colors.white,
+                labelText: "SSID",
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
                 ),
-              )
-        ],
+              ),
+            ),
+            const SizedBox(height: 20),
+            TextField(
+              controller: senhaController,
+              obscureText: true,
+              decoration: InputDecoration(
+                filled: true,
+                fillColor: Colors.white,
+                labelText: "Senha",
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+            ),
+            const SizedBox(height: 32),
+            GestureDetector(
+              onTap: enviando
+                  ? null
+                  : () async {
+                      await conectarEEnviar(
+                        ssidController.text.trim(),
+                        senhaController.text.trim(),
+                      );
+                    },
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF7E22CE),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Center(
+                  child: enviando
+                      ? const CircularProgressIndicator(color: Colors.white)
+                      : const Text(
+                          "Finalizar",
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
