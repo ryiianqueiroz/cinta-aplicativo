@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_reactive_ble/flutter_reactive_ble.dart';
@@ -11,9 +10,44 @@ import 'package:mqtt_client/mqtt_server_client.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 
-// Serviço MQTT
+class NotificationService {
+  static final FlutterLocalNotificationsPlugin _notificationsPlugin =
+      FlutterLocalNotificationsPlugin();
+
+  static Future<void> initialize() async {
+    const AndroidInitializationSettings androidSettings =
+        AndroidInitializationSettings('@mipmap/ic_launcher');
+
+    const InitializationSettings initSettings =
+        InitializationSettings(android: androidSettings);
+
+    await _notificationsPlugin.initialize(initSettings);
+  }
+
+  static Future<void> showNotification(RemoteMessage message) async {
+    const AndroidNotificationDetails androidDetails = AndroidNotificationDetails(
+      'default_channel',
+      'Alerta da Cinta',
+      importance: Importance.max,
+      priority: Priority.high,
+    );
+
+    const NotificationDetails notificationDetails =
+        NotificationDetails(android: androidDetails);
+
+    await _notificationsPlugin.show(
+      0,
+      message.notification?.title ?? 'Alerta',
+      message.notification?.body ?? '',
+      notificationDetails,
+    );
+  }
+}
+
+// === MQTT Service ===
 class MqttService {
   final String username = "yiaan";
   final String aioKey = dotenv.env['AIO_KEY'] ?? '';
@@ -40,13 +74,13 @@ class MqttService {
     try {
       await client.connect().timeout(const Duration(seconds: 10));
     } catch (e) {
-      print('Erro ao conectar: $e');
+      print('Erro ao conectar MQTT: $e');
       client.disconnect();
       return;
     }
 
     if (client.connectionStatus?.state == MqttConnectionState.connected) {
-      print('✅ Conectado ao broker');
+      print('✅ Conectado ao broker MQTT');
       final topic = '$username/feeds/alerta';
       client.subscribe(topic, MqttQos.atMostOnce);
 
@@ -54,58 +88,34 @@ class MqttService {
         final recMess = event[0].payload as MqttPublishMessage;
         final msg =
             MqttPublishPayload.bytesToStringAsString(recMess.payload.message);
-        print('📥 Mensagem recebida: $msg');
+        print('📥 Mensagem recebida MQTT: $msg');
         onMessage(msg);
       });
     } else {
-      print('❌ Falha ao conectar: ${client.connectionStatus?.state}');
+      print('❌ Falha ao conectar MQTT: ${client.connectionStatus?.state}');
       client.disconnect();
     }
   }
 
   void onDisconnected() {
-    print('🔌 Desconectado do broker');
+    print('🔌 Desconectado do broker MQTT');
   }
 }
 
 final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
     FlutterLocalNotificationsPlugin();
 
+// === Handler para mensagens em background do Firebase Messaging ===
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   await Firebase.initializeApp();
-  print("📨 Mensagem em segundo plano: ${message.messageId}");
+  await NotificationService.showNotification(message);
 }
 
-void setupFirebaseMessaging() async {
-  FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
-
-  // Solicitar permissão (iOS)
-  FirebaseMessaging messaging = FirebaseMessaging.instance;
-  await messaging.requestPermission();
-
-  // Obter token do dispositivo
-  final token = await messaging.getToken();
-  print("🔑 Token FCM: $token");
-
-  // Quando o app está em primeiro plano
-  FirebaseMessaging.onMessage.listen((RemoteMessage message) {
-    final notification = message.notification;
-    if (notification != null) {
-      flutterLocalNotificationsPlugin.show(
-        0,
-        notification.title,
-        notification.body,
-        NotificationDetails(
-          android: AndroidNotificationDetails('channel_id', 'Alerta'),
-        ),
-      );
-    }
-  });
-}
-
-void main() async {
+// === Main ===
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await dotenv.load(fileName: "chave.env");
+
   tz.initializeTimeZones();
   tz.setLocalLocation(tz.getLocation('America/Sao_Paulo'));
 
@@ -115,14 +125,19 @@ void main() async {
   await flutterLocalNotificationsPlugin.initialize(
     settings,
     onDidReceiveNotificationResponse: (NotificationResponse response) {
+      // Navegar para alerta, por exemplo
       runApp(MyApp(navigateTo: '/alerta'));
     },
   );
-  
+
   await Firebase.initializeApp();
+
+  FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
+
   runApp(MyApp());
 }
 
+// === MyApp e Rotas ===
 class MyApp extends StatelessWidget {
   final String? navigateTo;
   MyApp({this.navigateTo});
@@ -146,6 +161,7 @@ class MyApp extends StatelessWidget {
   }
 }
 
+// === SplashScreen ===
 class SplashScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
@@ -156,18 +172,19 @@ class SplashScreen extends StatelessWidget {
     return Scaffold(
       body: Center(
         child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Text('Bem-vindo ao ESP32 App'),
-          SizedBox(height: 20),
-          Image.asset('assets/logo.png'),
-        ],
-      ),
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text('Bem-vindo ao ESP32 App'),
+            SizedBox(height: 20),
+            Image.asset('assets/logo.png'),
+          ],
+        ),
       ),
     );
   }
 }
 
+// === LoginScreen ===
 class LoginScreen extends StatelessWidget {
   final TextEditingController email = TextEditingController();
   final TextEditingController senha = TextEditingController();
@@ -204,7 +221,6 @@ class LoginScreen extends StatelessWidget {
               ),
               const SizedBox(height: 30),
 
-              // Campo de email
               TextField(
                 controller: email,
                 decoration: InputDecoration(
@@ -220,7 +236,6 @@ class LoginScreen extends StatelessWidget {
 
               const SizedBox(height: 16),
 
-              // Campo de senha
               TextField(
                 controller: senha,
                 obscureText: true,
@@ -246,7 +261,6 @@ class LoginScreen extends StatelessWidget {
 
               const SizedBox(height: 20),
 
-              // Botão de login
               SizedBox(
                 width: double.infinity,
                 height: 50,
@@ -269,7 +283,6 @@ class LoginScreen extends StatelessWidget {
               const Center(child: Text("or continue with")),
               const SizedBox(height: 20),
 
-              // Redes sociais
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: const [
@@ -288,6 +301,7 @@ class LoginScreen extends StatelessWidget {
   }
 }
 
+// === RegisterScreen ===
 class RegisterScreen extends StatelessWidget {
   final TextEditingController email = TextEditingController();
   final TextEditingController username = TextEditingController();
@@ -302,47 +316,49 @@ class RegisterScreen extends StatelessWidget {
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(28),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Padding(
-                padding: const EdgeInsets.all(5), // Adjust the margin value as needed
-                child: SizedBox(
-                  width: 70.0, // Adjust the width as needed
-                  height: 50.0, // Adjust the height as needed
-                  child: Image.asset(
-                    "assets/logo.png",
-                    fit: BoxFit.fill, // Or other BoxFit options like BoxFit.cover, BoxFit.fitWidth, etc.
+          child: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.all(5),
+                  child: SizedBox(
+                    width: 70.0,
+                    height: 50.0,
+                    child: Image.asset(
+                      "assets/logo.png",
+                      fit: BoxFit.fill,
+                    ),
                   ),
                 ),
-              ),
-              const SizedBox(height: 30),
-              const Text("Sign in up", style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 6),
-              const Text("Lorem Ipsum is simply", style: TextStyle(fontSize: 16)),
-              const SizedBox(height: 20),
-              Row(
-                children: [
-                  const Text("If you already have an account register "),
-                  GestureDetector(
-                    onTap: () => Navigator.pop(context),
-                    child: const Text("Login here !", style: TextStyle(color: Colors.indigo, fontWeight: FontWeight.bold)),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 30),
-              _buildInputField(email, "Enter Email"),
-              const SizedBox(height: 12),
-              _buildInputField(username, "Create User name"),
-              const SizedBox(height: 12),
-              _buildInputField(contact, "Contact number"),
-              const SizedBox(height: 12),
-              _buildInputField(password, "Password", isPassword: true),
-              const SizedBox(height: 12),
-              _buildInputField(confirm, "Confirm Password", isPassword: true),
-              const SizedBox(height: 20),
-              _buildButton("Register"),
-            ],
+                const SizedBox(height: 30),
+                const Text("Sign in up", style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 6),
+                const Text("Lorem Ipsum is simply", style: TextStyle(fontSize: 16)),
+                const SizedBox(height: 20),
+                Row(
+                  children: [
+                    const Text("If you already have an account register "),
+                    GestureDetector(
+                      onTap: () => Navigator.pop(context),
+                      child: const Text("Login here !", style: TextStyle(color: Colors.indigo, fontWeight: FontWeight.bold)),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 30),
+                _buildInputField(email, "Enter Email"),
+                const SizedBox(height: 12),
+                _buildInputField(username, "Create User name"),
+                const SizedBox(height: 12),
+                _buildInputField(contact, "Contact number"),
+                const SizedBox(height: 12),
+                _buildInputField(password, "Password", isPassword: true),
+                const SizedBox(height: 12),
+                _buildInputField(confirm, "Confirm Password", isPassword: true),
+                const SizedBox(height: 20),
+                _buildButton("Register"),
+              ],
+            ),
           ),
         ),
       ),
@@ -380,6 +396,7 @@ class RegisterScreen extends StatelessWidget {
   }
 }
 
+// === AlertaScreen ===
 class AlertaScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
@@ -395,6 +412,7 @@ class AlertaScreen extends StatelessWidget {
   }
 }
 
+// === SettingsScreen ===
 class SettingsScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
@@ -414,6 +432,7 @@ class SettingsScreen extends StatelessWidget {
   }
 }
 
+// === PairingScreen ===
 class PairingScreen extends StatefulWidget {
   @override
   _PairingScreenState createState() => _PairingScreenState();
@@ -477,7 +496,6 @@ class _PairingScreenState extends State<PairingScreen> {
                       title: Text(device.name.isNotEmpty ? device.name : "Dispositivo sem nome"),
                       subtitle: Text(device.id),
                       onTap: () {
-                        // 👉 Navegar para a WifiCredentialsScreen passando o deviceId
                         Navigator.push(
                           context,
                           MaterialPageRoute(
@@ -497,6 +515,7 @@ class _PairingScreenState extends State<PairingScreen> {
   }
 }
 
+// === WifiCredentialsScreen ===
 class WifiCredentialsScreen extends StatefulWidget {
   final String deviceId;
 
@@ -620,20 +639,14 @@ class _WifiCredentialsScreenState extends State<WifiCredentialsScreen> {
                 width: double.infinity,
                 padding: const EdgeInsets.symmetric(vertical: 16),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF7E22CE),
+                  color: enviando ? Colors.grey : Color(0xFF7E22CE),
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Center(
-                  child: enviando
-                      ? const CircularProgressIndicator(color: Colors.white)
-                      : const Text(
-                          "Finalizar",
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
+                  child: Text(
+                    enviando ? "Enviando..." : "Enviar",
+                    style: TextStyle(color: Colors.white, fontSize: 18),
+                  ),
                 ),
               ),
             ),
@@ -644,50 +657,102 @@ class _WifiCredentialsScreenState extends State<WifiCredentialsScreen> {
   }
 }
 
+// === HomeScreen com FCM e MQTT ===
 class HomeScreen extends StatefulWidget {
   @override
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  String diaSelecionado = 'D';
-  int alertasRecebidos = 0;
-  final diasSemana = ['D', 'S', 'T', 'Q', 'Q', 'S', 'S'];
-  int diaSelecionadoIndex = 0;
-  final mqtt = MqttService();
-  List<Map<String, String>> backlogAlertas = [];
+  String? _fcmToken;
+  final MqttService mqttService = MqttService();
+  List<String> mensagens = [];
 
   @override
   void initState() {
     super.initState();
-    solicitarPermissaoNotificacao();
-    buscarMensagensAnteriores();
+    _initFCM();
+    _connectMQTT();
+  }
 
-    mqtt.connectAndListen((mensagem) {
-      final agora = DateTime.now();
-      final formatado = "${agora.day.toString().padLeft(2, '0')}/"
-                        "${agora.month.toString().padLeft(2, '0')}/"
-                        "${agora.year} - "
-                        "${agora.hour.toString().padLeft(2, '0')}:"
-                        "${agora.minute.toString().padLeft(2, '0')}";
+  Future<void> _initFCM() async {
+    FirebaseMessaging messaging = FirebaseMessaging.instance;
+
+    NotificationSettings settings = await messaging.requestPermission();
+
+    if (settings.authorizationStatus == AuthorizationStatus.authorized) {
+      print("Permissão concedida para notificações");
+
+      String? token = await messaging.getToken();
+      print("🔑 Token FCM: $token");
 
       setState(() {
-        alertasRecebidos++;
-        backlogAlertas.insert(0, {
-          "mensagem": mensagem,
-          "data": formatado,
-        });
+        _fcmToken = token;
       });
 
+      if (token != null) {
+        await _sendTokenToBackend(token);
+      }
+
+      FirebaseMessaging.onMessage.listen((RemoteMessage message) {
+        RemoteNotification? notification = message.notification;
+        AndroidNotification? android = message.notification?.android;
+
+        if (notification != null && android != null) {
+          flutterLocalNotificationsPlugin.show(
+            notification.hashCode,
+            notification.title,
+            notification.body,
+            NotificationDetails(
+              android: AndroidNotificationDetails(
+                'alert_channel',
+                'Alertas',
+                channelDescription: 'Canal para notificações de alertas',
+                importance: Importance.max,
+                priority: Priority.high,
+              ),
+            ),
+          );
+        }
+      });
+    } else {
+      print("Permissão negada para notificações");
+    }
+  }
+
+  Future<void> _sendTokenToBackend(String token) async {
+    final url = Uri.parse("http://192.168.18.183:4000/register-device-token");
+    try {
+      final response = await http.post(
+        url,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'token': token}),
+      );
+      if (response.statusCode == 200) {
+        print("✅ Token enviado para backend com sucesso");
+      } else {
+        print("❌ Erro ao enviar token: ${response.statusCode}");
+      }
+    } catch (e) {
+      print("❌ Erro ao enviar token: $e");
+    }
+  }
+
+  void _connectMQTT() {
+    mqttService.connectAndListen((msg) {
+      setState(() {
+        mensagens.add(msg);
+      });
+      // Exibir notificação local
       flutterLocalNotificationsPlugin.show(
-        0,
-        '⚠️ Alerta da ESP32',
-        mensagem,
-        const NotificationDetails(
+        DateTime.now().millisecondsSinceEpoch ~/ 1000,
+        'Alerta recebido',
+        msg,
+        NotificationDetails(
           android: AndroidNotificationDetails(
             'alert_channel',
-            'Alertas da ESP32',
-            channelDescription: 'Canal para notificações da ESP32',
+            'Alertas',
+            channelDescription: 'Canal para notificações de alertas',
             importance: Importance.max,
             priority: Priority.high,
           ),
@@ -696,176 +761,59 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
-  Future<void> buscarMensagensAnteriores() async {
-    final url = Uri.parse('https://io.adafruit.com/api/v2/yiaan/feeds/alerta/data?limit=10');
-    final response = await http.get(url, headers: {
-      'X-AIO-Key': dotenv.env['AIO_KEY'] ?? '',
-    });
+  // Exemplo para puxar mensagens anteriores via REST do Adafruit
+  Future<List<String>> fetchMessages() async {
+    final username = "yiaan";
+    final aioKey = dotenv.env['AIO_KEY'] ?? '';
+    final url = Uri.parse("https://io.adafruit.com/api/v2/$username/feeds/alerta/data?X-AIO-Key=$aioKey");
 
-
+    final response = await http.get(url);
     if (response.statusCode == 200) {
-      final List<dynamic> dados = jsonDecode(response.body);
-
-      setState(() {
-        backlogAlertas = dados.map<Map<String, String>>((item) {
-          final DateTime createdAt = DateTime.parse(item['created_at']);
-          final dataFormatada = "${createdAt.day.toString().padLeft(2, '0')}/"
-                                "${createdAt.month.toString().padLeft(2, '0')}/"
-                                "${createdAt.year} - "
-                                "${createdAt.hour.toString().padLeft(2, '0')}:"
-                                "${createdAt.minute.toString().padLeft(2, '0')}";
-          return {
-            "mensagem": item['value'],
-            "data": dataFormatada,
-          };
-        }).toList();
-      });
+      List data = jsonDecode(response.body);
+      return data.map((e) => e['value'].toString()).toList();
     } else {
-      print('Erro ao buscar histórico: ${response.statusCode}');
+      throw Exception('Falha ao carregar mensagens');
     }
-  }
-
-  Future<void> solicitarPermissaoNotificacao() async {
-    if (await Permission.notification.isDenied) {
-      await Permission.notification.request();
-    }
-  }
-
-  Widget colunaIndicador(String label) {
-    return Column(
-      children: [
-        CircleAvatar(radius: 18, backgroundColor: Colors.black),
-        SizedBox(height: 4),
-        Text(label, style: TextStyle(fontSize: 12))
-      ],
-    );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text("Tela Inicial"),
+        title: Text("Home - ESP32 App"),
         actions: [
-          IconButton(
-            icon: Icon(Icons.bluetooth),
-            onPressed: () => Navigator.pushNamed(context, '/pair'),
-          ),
           IconButton(
             icon: Icon(Icons.settings),
             onPressed: () => Navigator.pushNamed(context, '/settings'),
           )
         ],
       ),
-      body: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12.0),
-        child: Column(
-          children: [
-            SizedBox(height: 20),
-            Container(
-              width: double.infinity,
-              padding: EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(12),
-                boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 4)],
-              ),
-              child: Text(
-                "Cinta está: Desconectada",
-                style: TextStyle(
-                  color: Colors.red,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 16,
-                ),
-              ),
-            ),
-            SizedBox(height: 20),
-            Container(
-              padding: EdgeInsets.symmetric(vertical: 12),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(12),
-                boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 4)],
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: diasSemana.asMap().entries.map((entry) {
-                  final index = entry.key;
-                  final dia = entry.value;
-                  final selecionado = index == diaSelecionadoIndex;
-
-                  return GestureDetector(
-                    onTap: () {
-                      setState(() {
-                        diaSelecionadoIndex = index;
-                        alertasRecebidos = 0;
-                        backlogAlertas.clear();
-                      });
-                    },
-                    child: CircleAvatar(
-                      radius: 20,
-                      backgroundColor: selecionado ? Colors.blue : Colors.grey.shade300,
-                      child: Text(
-                        dia,
-                        style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          color: selecionado ? Colors.white : Colors.black,
-                        ),
-                      ),
-                    ),
-                  );
-                }).toList(),
-              ),
-            ),
-            SizedBox(height: 20),
-            Container(
-              width: double.infinity,
-              padding: EdgeInsets.all(24),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(12),
-                boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 4)],
-              ),
-              child: Column(
-                children: [
-                  Text(
-                    "$alertasRecebidos",
-                    style: TextStyle(fontSize: 48, fontWeight: FontWeight.bold),
-                  ),
-                  Text(
-                    "Alertas recebidos",
-                    style: TextStyle(fontSize: 16, color: Colors.grey),
-                  ),
-                  SizedBox(height: 20),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                    children: [
-                      colunaIndicador("Temperatura"),
-                      colunaIndicador("BPM"),
-                      colunaIndicador("Passos"),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-            SizedBox(height: 20),
-            Text("📦 Histórico de Alertas", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-            Expanded(
-              child: ListView.builder(
-                itemCount: backlogAlertas.length,
-                itemBuilder: (context, index) {
-                  final alerta = backlogAlertas[index];
-                  return ListTile(
-                    leading: Icon(Icons.warning_amber_rounded, color: Colors.red),
-                    title: Text(alerta['mensagem'] ?? ''),
-                    subtitle: Text(alerta['data'] ?? ''),
-                  );
-                },
-              ),
-            ),
-            SizedBox(height: 20),
-          ],
-        ),
+      body: FutureBuilder<List<String>>(
+        future: fetchMessages(),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return Center(child: CircularProgressIndicator());
+          }
+          if (snapshot.hasError) {
+            return Center(child: Text("Erro ao carregar mensagens"));
+          }
+          final allMessages = snapshot.data ?? [];
+          final combined = [...allMessages, ...mensagens];
+          return ListView.builder(
+            itemCount: combined.length,
+            itemBuilder: (context, index) {
+              return ListTile(
+                leading: Icon(Icons.notification_important, color: Colors.red),
+                title: Text(combined[index]),
+              );
+            },
+          );
+        },
+      ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: () => Navigator.pushNamed(context, '/pair'),
+        child: Icon(Icons.bluetooth),
+        tooltip: "Emparelhar dispositivo",
       ),
     );
   }
